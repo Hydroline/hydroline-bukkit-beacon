@@ -21,3 +21,6 @@ Thumbs.db
 # Maven (if used)
 target/
 .mvn/wrapper/
+
+# Examples
+examples/

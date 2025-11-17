@@ -21,6 +21,11 @@ tasks.withType(Javadoc).configureEach {
 
 dependencies {
     compileOnly 'org.spigotmc:spigot-api:1.16.5-R0.1-SNAPSHOT'
+
+    implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.1'
+    implementation 'com.corundumstudio.socketio:netty-socketio:2.0.9'
+    implementation 'org.apache.commons:commons-csv:1.11.0'
 }
 
 jar {
