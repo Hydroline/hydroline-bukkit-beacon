@@ -134,9 +134,19 @@ public class DatabaseManager {
                     "CREATE TABLE IF NOT EXISTS player_identities (" +
                         "player_uuid TEXT PRIMARY KEY," +
                         "player_name TEXT," +
+                        "first_played INTEGER," +
+                        "last_played INTEGER," +
                         "last_updated INTEGER NOT NULL" +
                         ")"
                 );
+
+                // backfill columns for existing deployments (SQLite throws if column exists)
+                try {
+                    statement.executeUpdate("ALTER TABLE player_identities ADD COLUMN first_played INTEGER");
+                } catch (SQLException ignored) {}
+                try {
+                    statement.executeUpdate("ALTER TABLE player_identities ADD COLUMN last_played INTEGER");
+                } catch (SQLException ignored) {}
 
                 // Cache of raw player NBT JSON to avoid heavy parsing on every request
                 statement.executeUpdate(

@@ -69,7 +69,9 @@ async function main() {
         );
         await writeJson(
           outDir,
-          `advancements_${sanitize(playerUuid || playerName || "unknown")}.json`,
+          `advancements_${sanitize(
+            playerUuid || playerName || "unknown"
+          )}.json`,
           adv
         );
 
@@ -79,7 +81,11 @@ async function main() {
           { key, playerUuid, playerName },
           "get_player_stats"
         );
-        await writeJson(outDir, `stats_${sanitize(playerUuid || playerName || "unknown")}.json`, stats);
+        await writeJson(
+          outDir,
+          `stats_${sanitize(playerUuid || playerName || "unknown")}.json`,
+          stats
+        );
 
         const nbt = await emitWithAck(
           socket,
@@ -87,9 +93,29 @@ async function main() {
           { key, playerUuid, playerName },
           "get_player_nbt"
         );
-        await writeJson(outDir, `nbt_${sanitize(playerUuid || playerName || "unknown")}.json`, nbt);
+        await writeJson(
+          outDir,
+          `nbt_${sanitize(playerUuid || playerName || "unknown")}.json`,
+          nbt
+        );
+
+        const identity = await emitWithAck(
+          socket,
+          "lookup_player_identity",
+          { key, playerUuid, playerName },
+          "lookup_player_identity"
+        );
+        await writeJson(
+          outDir,
+          `player_identity_${sanitize(
+            playerUuid || playerName || "unknown"
+          )}.json`,
+          identity
+        );
       } else {
-        console.log("BEACON_PLAYER_UUID/BEACON_PLAYER_NAME not set, skip player-specific queries.");
+        console.log(
+          "BEACON_PLAYER_UUID/BEACON_PLAYER_NAME not set, skip player-specific queries."
+        );
       }
 
       const force = await emitWithAck(
@@ -228,7 +254,9 @@ async function main() {
         );
         await writeJson(
           outDir,
-          `player_sessions_${sanitize(playerUuid || playerName || "unknown")}.json`,
+          `player_sessions_${sanitize(
+            playerUuid || playerName || "unknown"
+          )}.json`,
           sessionsByPlayer
         );
       }

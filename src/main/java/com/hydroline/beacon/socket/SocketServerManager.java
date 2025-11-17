@@ -44,7 +44,7 @@ public class SocketServerManager {
         server.start();
 
         plugin.getLogger().info("Socket.IO server started on port " + cfg.getPort());
-        plugin.getLogger().info("Socket.IO events registered: force_update, get_player_advancements, get_player_stats, list_online_players, get_server_time, get_player_mtr_logs, get_mtr_log_detail, get_player_sessions, get_status");
+        plugin.getLogger().info("Socket.IO events registered: force_update, get_player_advancements, get_player_stats, list_online_players, get_server_time, get_player_mtr_logs, get_mtr_log_detail, get_player_sessions, get_player_nbt, lookup_player_identity, get_status");
     }
 
     public void stop() {
@@ -242,6 +242,49 @@ public class SocketServerManager {
                         sendError(ackSender, "DB_ERROR: " + e.getMessage());
                     } catch (IllegalArgumentException e) {
                         sendError(ackSender, "INVALID_ARGUMENT: " + e.getMessage());
+                    }
+                });
+
+        // lookup_player_identity: resolve UUID/name + metadata from player_identities table
+        server.addEventListener("lookup_player_identity", PlayerIdentityRequest.class,
+                (client, data, ackSender) -> {
+                    if (!validateKey(data.getKey())) {
+                        sendError(ackSender, "INVALID_KEY");
+                        return;
+                    }
+                    boolean hasUuid = data.getPlayerUuid() != null && !data.getPlayerUuid().isEmpty();
+                    boolean hasName = data.getPlayerName() != null && !data.getPlayerName().isEmpty();
+                    if (!hasUuid && !hasName) {
+                        sendError(ackSender, "INVALID_ARGUMENT: playerUuid or playerName required");
+                        return;
+                    }
+                    try {
+                        Map<String, Object> identity = null;
+                        if (hasUuid) {
+                            identity = loadIdentityByUuid(data.getPlayerUuid());
+                            if (identity == null && hasName) {
+                                identity = loadIdentityByName(data.getPlayerName());
+                            }
+                        } else if (hasName) {
+                            identity = loadIdentityByName(data.getPlayerName());
+                        }
+                        if (identity == null) {
+                            sendError(ackSender, "NOT_FOUND");
+                            return;
+                        }
+                        if (hasUuid && hasName) {
+                            Object identityName = identity.get("player_name");
+                            if (identityName instanceof String && !((String) identityName).equalsIgnoreCase(data.getPlayerName())) {
+                                // warn but still return data as canonical record; mismatch likely stale input
+                                plugin.getLogger().warning("lookup_player_identity request name mismatch for UUID " + data.getPlayerUuid());
+                            }
+                        }
+                        Map<String, Object> resp = new HashMap<>();
+                        resp.put("success", true);
+                        resp.put("identity", identity);
+                        ackSender.sendAckData(resp);
+                    } catch (SQLException e) {
+                        sendError(ackSender, "DB_ERROR: " + e.getMessage());
                     }
                 });
 
@@ -687,6 +730,53 @@ public class SocketServerManager {
         return null;
     }
 
+    private Map<String, Object> loadIdentityByUuid(String playerUuid) throws SQLException {
+        if (playerUuid == null || playerUuid.isEmpty()) return null;
+        try (Connection conn = plugin.getDatabaseManager().getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT player_uuid, player_name, first_played, last_played, last_updated FROM player_identities WHERE player_uuid = ?")) {
+            ps.setString(1, playerUuid);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapIdentityRow(rs);
+                }
+            }
+        }
+        return null;
+    }
+
+    private Map<String, Object> loadIdentityByName(String playerName) throws SQLException {
+        if (playerName == null || playerName.isEmpty()) return null;
+        try (Connection conn = plugin.getDatabaseManager().getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "SELECT player_uuid, player_name, first_played, last_played, last_updated FROM player_identities WHERE player_name = ? ORDER BY last_updated DESC LIMIT 1")) {
+            ps.setString(1, playerName);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapIdentityRow(rs);
+                }
+            }
+        }
+        return null;
+    }
+
+    private Map<String, Object> mapIdentityRow(ResultSet rs) throws SQLException {
+        Map<String, Object> identity = new HashMap<>();
+        identity.put("player_uuid", rs.getString("player_uuid"));
+        identity.put("player_name", rs.getString("player_name"));
+        Long firstPlayed = getNullableLong(rs, "first_played");
+        Long lastPlayed = getNullableLong(rs, "last_played");
+        identity.put("first_played", firstPlayed);
+        identity.put("last_played", lastPlayed);
+        identity.put("last_updated", getNullableLong(rs, "last_updated"));
+        return identity;
+    }
+
+    private Long getNullableLong(ResultSet rs, String column) throws SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
+    }
+
     private String getPlayerNbtJsonCached(String playerUuid) throws Exception {
         long now = System.currentTimeMillis();
         long ttlMillis = plugin.getConfigManager().getCurrentConfig().getNbtCacheTtlMinutes() * 60_000L;
@@ -725,18 +815,67 @@ public class SocketServerManager {
             if (bukkit instanceof Map) {
                 Object lkn = ((Map<?, ?>) bukkit).get("lastKnownName");
                 if (lkn instanceof String) {
-                    try (PreparedStatement upi = conn.prepareStatement(
-                            "INSERT INTO player_identities (player_uuid, player_name, last_updated) VALUES (?, ?, ?) " +
-                                    "ON CONFLICT(player_uuid) DO UPDATE SET player_name=excluded.player_name, last_updated=excluded.last_updated")) {
-                        upi.setString(1, playerUuid);
-                        upi.setString(2, (String) lkn);
-                        upi.setLong(3, now);
-                        upi.executeUpdate();
-                    }
+                    Long firstPlayed = extractLongFromIdentityMap(map, "firstPlayed", (Map<?, ?>) bukkit);
+                    Long lastPlayed = extractLongFromIdentityMap(map, "lastPlayed", (Map<?, ?>) bukkit);
+                    upsertIdentityRow(conn, playerUuid, (String) lkn, firstPlayed, lastPlayed, now);
                 }
             }
             return json;
         }
+    }
+
+    private void upsertIdentityRow(Connection conn,
+                                   String playerUuid,
+                                   String playerName,
+                                   Long firstPlayed,
+                                   Long lastPlayed,
+                                   long now) throws SQLException {
+        try (PreparedStatement upi = conn.prepareStatement(
+                "INSERT INTO player_identities (player_uuid, player_name, first_played, last_played, last_updated) VALUES (?, ?, ?, ?, ?) " +
+                        "ON CONFLICT(player_uuid) DO UPDATE SET " +
+                        "player_name=excluded.player_name, " +
+                        "first_played=COALESCE(excluded.first_played, player_identities.first_played), " +
+                        "last_played=COALESCE(excluded.last_played, player_identities.last_played), " +
+                        "last_updated=excluded.last_updated")) {
+            upi.setString(1, playerUuid);
+            upi.setString(2, playerName);
+            if (firstPlayed != null) {
+                upi.setLong(3, firstPlayed);
+            } else {
+                upi.setNull(3, java.sql.Types.BIGINT);
+            }
+            if (lastPlayed != null) {
+                upi.setLong(4, lastPlayed);
+            } else {
+                upi.setNull(4, java.sql.Types.BIGINT);
+            }
+            upi.setLong(5, now);
+            upi.executeUpdate();
+        }
+    }
+
+    private Long extractLongFromIdentityMap(Map<String, Object> root, String key, Map<?, ?> bukkitSection) {
+        Long value = asLong(root.get(key));
+        if (value != null) {
+            return value;
+        }
+        if (bukkitSection != null) {
+            return asLong(bukkitSection.get(key));
+        }
+        return null;
+    }
+
+    private Long asLong(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Long.parseLong((String) value);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
     }
 
     private java.io.File findPlayerDatFile(String playerUuid) {

@@ -318,8 +318,36 @@
 - 说明：
   - 缓存时长由 `config.yml` 的 `nbt_cache_ttl_minutes` 控制（默认 10）。超时后首次查询会自动重载并刷新缓存。
   - 若找不到对应的 `playerdata/<uuid>.dat` 文件，返回 `success: true, nbt: null`（不视为错误）。
-  - 插件会从 NBT 的 `bukkit.lastKnownName` 自动更新 `player_identities` 表，实现 UUID 与玩家名的对应。
-    });
+  - 插件会从 NBT 的 `bukkit.lastKnownName` 以及 `firstPlayed`/`lastPlayed` 自动更新 `player_identities` 表，实现 UUID 与玩家名及首末登录时间的缓存。
+
+11. lookup_player_identity（玩家身份查询）
+
+- 描述：查询 `player_identities` 表中的 UUID ↔ 玩家名映射，同时返回玩家首登/末登时间戳与记录更新时间。支持通过 `playerUuid` 或 `playerName` 查询，建议至少提供其中一项（若两者都提供而记录中名称不同，响应以数据库为准）。
+- 请求：
+
+```json
+{ "key": "<key>", "playerUuid": "<uuid>", "playerName": "<name>" }
+```
+
+- ACK 成功示例：
+
+```json
+{
+  "success": true,
+  "identity": {
+    "player_uuid": "<uuid>",
+    "player_name": "Steve",
+    "first_played": 1708236523123,
+    "last_played": 1708890123456,
+    "last_updated": 1708891123999
+  }
+}
+```
+
+- 字段含义：
+  - `first_played` / `last_played`：来自玩家 `playerdata` NBT 的毫秒时间戳（若无法解析则为 `null`）。
+  - `last_updated`：插件写入该行的本地时间戳，便于判断数据新旧。
+  - 若查无记录返回 `success: false, error: "NOT_FOUND"`。
 
 ## 错误与状态碼
 

@@ -46,6 +46,8 @@ public class NbtIdentityScanner {
                     if (uuid == null || uuid.length() < 32) continue;
                     filesProcessed++;
                     String playerName = null;
+                    Long firstPlayed = null;
+                    Long lastPlayed = null;
                     try (FileInputStream in = new FileInputStream(f)) {
                         Map<String, Object> nbt = NbtUtils.readPlayerDatToMap(in);
                         // Common CraftBukkit path: bukkit -> lastKnownName
@@ -55,12 +57,24 @@ public class NbtIdentityScanner {
                             if (lkn instanceof String) {
                                 playerName = (String) lkn;
                             }
+                            if (firstPlayed == null) {
+                                firstPlayed = asLong(((Map<?, ?>) bkt).get("firstPlayed"));
+                            }
+                            if (lastPlayed == null) {
+                                lastPlayed = asLong(((Map<?, ?>) bkt).get("lastPlayed"));
+                            }
+                        }
+                        if (firstPlayed == null) {
+                            firstPlayed = asLong(nbt.get("firstPlayed"));
+                        }
+                        if (lastPlayed == null) {
+                            lastPlayed = asLong(nbt.get("lastPlayed"));
                         }
                     } catch (IOException e) {
                         plugin.getLogger().warning("Failed to parse NBT for " + PathUtils.toServerRelativePath(plugin, f) + ": " + e.getMessage());
                     }
                     if (playerName != null && !playerName.isEmpty()) {
-                        upsertIdentity(conn, uuid, playerName, System.currentTimeMillis());
+                        upsertIdentity(conn, uuid, playerName, firstPlayed, lastPlayed, System.currentTimeMillis());
                         upserts++;
                     }
                 }
@@ -76,16 +90,43 @@ public class NbtIdentityScanner {
         }
     }
 
-    private void upsertIdentity(Connection conn, String uuid, String name, long now) throws SQLException {
+    private void upsertIdentity(Connection conn, String uuid, String name, Long firstPlayed, Long lastPlayed, long now) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(
-                "INSERT INTO player_identities (player_uuid, player_name, last_updated) VALUES (?, ?, ?) " +
-                        "ON CONFLICT(player_uuid) DO UPDATE SET player_name=excluded.player_name, last_updated=excluded.last_updated"
+                "INSERT INTO player_identities (player_uuid, player_name, first_played, last_played, last_updated) VALUES (?, ?, ?, ?, ?) " +
+                        "ON CONFLICT(player_uuid) DO UPDATE SET " +
+                        "player_name=excluded.player_name, " +
+                        "first_played=COALESCE(excluded.first_played, player_identities.first_played), " +
+                        "last_played=COALESCE(excluded.last_played, player_identities.last_played), " +
+                        "last_updated=excluded.last_updated"
         )) {
             ps.setString(1, uuid);
             ps.setString(2, name);
-            ps.setLong(3, now);
+            if (firstPlayed != null) {
+                ps.setLong(3, firstPlayed);
+            } else {
+                ps.setNull(3, java.sql.Types.BIGINT);
+            }
+            if (lastPlayed != null) {
+                ps.setLong(4, lastPlayed);
+            } else {
+                ps.setNull(4, java.sql.Types.BIGINT);
+            }
+            ps.setLong(5, now);
             ps.executeUpdate();
         }
+    }
+
+    private Long asLong(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Long.parseLong((String) value);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
     }
 
     private String stripDat(String name) {
