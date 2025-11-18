@@ -120,6 +120,9 @@ public class AdvancementsAndStatsScanner {
 
         try {
             if (FILE_TYPE_ADVANCEMENTS.equals(fileType)) {
+                // full-sync this player's advancements: delete stale rows then re-insert current ones
+                deletePlayerAdvancementsForFile(connection, playerUuid);
+
                 Iterator<Map.Entry<String, JsonNode>> fields = root.fields();
                 while (fields.hasNext()) {
                     Map.Entry<String, JsonNode> entry = fields.next();
@@ -129,6 +132,9 @@ public class AdvancementsAndStatsScanner {
                     upserted++;
                 }
             } else if (FILE_TYPE_STATS.equals(fileType)) {
+                // full-sync this player's stats: delete stale rows then re-insert current ones
+                deletePlayerStatsForFile(connection, playerUuid);
+
                 JsonNode statsNode = root.get("stats");
                 if (statsNode != null && statsNode.isObject()) {
                     upserted += upsertStatsRecursive(connection, playerUuid, statsNode, "", now);
@@ -234,6 +240,26 @@ public class AdvancementsAndStatsScanner {
             ps.setString(2, statKey);
             ps.setLong(3, value);
             ps.setLong(4, lastUpdated);
+            ps.executeUpdate();
+        }
+    }
+
+    private void deletePlayerAdvancementsForFile(Connection connection,
+                                                 String playerUuid) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "DELETE FROM player_advancements WHERE player_uuid = ?"
+        )) {
+            ps.setString(1, playerUuid);
+            ps.executeUpdate();
+        }
+    }
+
+    private void deletePlayerStatsForFile(Connection connection,
+                                          String playerUuid) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "DELETE FROM player_stats WHERE player_uuid = ?"
+        )) {
+            ps.setString(1, playerUuid);
             ps.executeUpdate();
         }
     }

@@ -48,8 +48,9 @@ public class NbtIdentityScanner {
                     String playerName = null;
                     Long firstPlayed = null;
                     Long lastPlayed = null;
+                    Map<String, Object> nbt = null;
                     try (FileInputStream in = new FileInputStream(f)) {
-                        Map<String, Object> nbt = NbtUtils.readPlayerDatToMap(in);
+                        nbt = NbtUtils.readPlayerDatToMap(in);
                         // Common CraftBukkit path: bukkit -> lastKnownName
                         Object bkt = nbt.get("bukkit");
                         if (bkt instanceof Map) {
@@ -73,9 +74,21 @@ public class NbtIdentityScanner {
                     } catch (IOException e) {
                         plugin.getLogger().warning("Failed to parse NBT for " + PathUtils.toServerRelativePath(plugin, f) + ": " + e.getMessage());
                     }
+
+                    long now = System.currentTimeMillis();
+
                     if (playerName != null && !playerName.isEmpty()) {
-                        upsertIdentity(conn, uuid, playerName, firstPlayed, lastPlayed, System.currentTimeMillis());
+                        upsertIdentity(conn, uuid, playerName, firstPlayed, lastPlayed, now);
                         upserts++;
+                    }
+
+                    // Keep raw NBT JSON cache in sync with current playerdata
+                    if (nbt != null) {
+                        try {
+                            upsertPlayerNbtCache(conn, uuid, NbtUtils.toJson(nbt), now);
+                        } catch (IOException e) {
+                            plugin.getLogger().warning("Failed to serialize NBT JSON for " + uuid + ": " + e.getMessage());
+                        }
                     }
                 }
             }
@@ -112,6 +125,20 @@ public class NbtIdentityScanner {
                 ps.setNull(4, java.sql.Types.BIGINT);
             }
             ps.setLong(5, now);
+            ps.executeUpdate();
+        }
+    }
+
+    private void upsertPlayerNbtCache(Connection conn, String uuid, String rawJson, long now) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "INSERT INTO player_nbt_cache (player_uuid, raw_json, cached_at) VALUES (?, ?, ?) " +
+                        "ON CONFLICT(player_uuid) DO UPDATE SET " +
+                        "raw_json = excluded.raw_json, " +
+                        "cached_at = excluded.cached_at"
+        )) {
+            ps.setString(1, uuid);
+            ps.setString(2, rawJson);
+            ps.setLong(3, now);
             ps.executeUpdate();
         }
     }
