@@ -436,6 +436,16 @@ public class SocketServerManager {
             plugin.getLogger().warning("[Socket.IO] Pipeline exception: " + e.getMessage());
             return true; // already handled
         }
+
+        @Override
+        public void onAuthException(Throwable e, SocketIOClient client) {
+            plugin.getLogger().warning("[Socket.IO] Auth exception: " + e.getMessage() + ", client=" + formatClientInfo(client));
+        }
+
+        @Override
+        public void onPongException(Exception e, SocketIOClient client) {
+            plugin.getLogger().warning("[Socket.IO] Pong exception: " + e.getMessage() + ", client=" + formatClientInfo(client));
+        }
     }
 
     private boolean validateKey(String key) {
