@@ -205,6 +205,14 @@ async function main() {
       );
       await writeJson(outDir, `player_sessions_page1.json`, sessionsPage1);
 
+      const identitiesPage1 = await emitWithAck(
+        socket,
+        "list_player_identities",
+        { key, page: 1, pageSize: 200 },
+        "list_player_identities(page1)"
+      );
+      await writeJson(outDir, `player_identities_page1.json`, identitiesPage1);
+
       // Player sessions: today only
       const sessionsToday = await emitWithAck(
         socket,

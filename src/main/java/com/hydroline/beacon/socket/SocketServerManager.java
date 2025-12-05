@@ -111,15 +111,17 @@ public class SocketServerManager {
                         sendError(ackSender, "INVALID_KEY");
                         return;
                     }
-                    try {
+                        try {
                         String uuid = ensurePlayerUuid(data.getPlayerUuid(), data.getPlayerName());
                         if (uuid == null) { sendError(ackSender, "NOT_FOUND"); return; }
                         Set<String> filters = normalizeFilterKeys(data.getKeys());
+                        int page = data.getPage() != null ? data.getPage() : 1;
+                        int pageSize = data.getPageSize() != null ? data.getPageSize() : 100;
                         Map<String, Object> result = loadAdvancementsForPlayer(
-                                uuid,
-                                filters,
-                                data.getPage(),
-                                data.getPageSize()
+                            uuid,
+                            filters,
+                            page,
+                            pageSize
                         );
                         Map<String, String> advancements = (Map<String, String>) result.get("records");
                         Map<String, Object> resp = new HashMap<>();
@@ -141,15 +143,17 @@ public class SocketServerManager {
                         sendError(ackSender, "INVALID_KEY");
                         return;
                     }
-                    try {
+                        try {
                         String uuid = ensurePlayerUuid(data.getPlayerUuid(), data.getPlayerName());
                         if (uuid == null) { sendError(ackSender, "NOT_FOUND"); return; }
                         Set<String> filters = normalizeFilterKeys(data.getKeys());
+                        int page = data.getPage() != null ? data.getPage() : 1;
+                        int pageSize = data.getPageSize() != null ? data.getPageSize() : 100;
                         Map<String, Object> result = loadStatsForPlayer(
-                                uuid,
-                                filters,
-                                data.getPage(),
-                                data.getPageSize()
+                            uuid,
+                            filters,
+                            page,
+                            pageSize
                         );
                         Map<String, Long> stats = (Map<String, Long>) result.get("records");
                         Map<String, Object> resp = new HashMap<>();
